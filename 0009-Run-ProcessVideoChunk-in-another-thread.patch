@@ -9,12 +9,16 @@ Subject: [PATCH 09/10] Run ProcessVideoChunk in another thread
  2 files changed, 25 insertions(+), 5 deletions(-)
 
 diff --git a/media/webrtc/signaling/src/mediapipeline/MediaPipeline.cpp b/media/webrtc/signaling/src/mediapipeline/MediaPipeline.cpp
-index 1c9b5c6..1279cc0 100644
 --- a/media/webrtc/signaling/src/mediapipeline/MediaPipeline.cpp
 +++ b/media/webrtc/signaling/src/mediapipeline/MediaPipeline.cpp
-@@ -834,6 +834,16 @@ void MediaPipelineTransmit::PipelineListener::ProcessVideoChunk(
+@@ -790,16 +790,26 @@ void MediaPipelineTransmit::PipelineList
+     VideoChunk& chunk) {
+   // We now need to send the video frame to the other side
+   layers::Image *img = chunk.mFrame.GetImage();
+   if (!img) {
+     // segment.AppendFrame() allows null images, which show up here as null
+     return;
    }
-   last_img_ = serial;
  
 +  RUN_ON_THREAD(worker_thread_, WrapRunnable(this,
 +        &MediaPipelineTransmit::PipelineListener::ProcessVideoChunk_w,
@@ -29,7 +33,17 @@ index 1c9b5c6..1279cc0 100644
    ImageFormat format = img->GetFormat();
  #ifdef MOZ_WIDGET_GONK
    if (format == GONK_IO_SURFACE) {
-@@ -856,7 +866,7 @@ void MediaPipelineTransmit::PipelineListener::ProcessVideoChunk(
+     layers::GonkIOSurfaceImage *nativeImage = static_cast<layers::GonkIOSurfaceImage*>(img);
+     layers::SurfaceDescriptor handle = nativeImage->GetSurfaceDescriptor();
+     layers::SurfaceDescriptorGralloc grallocHandle = handle.get_SurfaceDescriptorGralloc();
+ 
+     android::sp<android::GraphicBuffer> graphicBuffer = layers::GrallocBufferActor::GetFrom(grallocHandle);
+@@ -812,17 +822,17 @@ void MediaPipelineTransmit::PipelineList
+                             mozilla::kVideoNV21, 0);
+     graphicBuffer->unlock();
+   } else
+ #endif
+   if (format == PLANAR_YCBCR) {
      // Cast away constness b/c some of the accessors are non-const
      layers::PlanarYCbCrImage* yuv =
      const_cast<layers::PlanarYCbCrImage *>(
@@ -38,18 +52,25 @@ index 1c9b5c6..1279cc0 100644
      // Big-time assumption here that this is all contiguous data coming
      // from getUserMedia or other sources.
      const layers::PlanarYCbCrImage::Data *data = yuv->GetData();
+ 
+     uint8_t *y = data->mYChannel;
+ #ifdef DEBUG
+     uint8_t *cb = data->mCbChannel;
+     uint8_t *cr = data->mCrChannel;
 diff --git a/media/webrtc/signaling/src/mediapipeline/MediaPipeline.h b/media/webrtc/signaling/src/mediapipeline/MediaPipeline.h
-index 52c3a31..4783526 100644
 --- a/media/webrtc/signaling/src/mediapipeline/MediaPipeline.h
 +++ b/media/webrtc/signaling/src/mediapipeline/MediaPipeline.h
-@@ -325,8 +325,13 @@ class MediaPipelineTransmit : public MediaPipeline {
-         active_(false),
-         last_img_(-1),
-         samples_10ms_buffer_(nullptr),
--        buffer_current_(0),
--        samplenum_10ms_(0) {}
-+        buffer_current_(0), samplenum_10ms_(0)
-+    {
+@@ -317,17 +317,22 @@ class MediaPipelineTransmit : public Med
+   // Override MediaPipeline::TransportReady.
+   virtual nsresult TransportReady_s(TransportFlow *flow);
+ 
+   // Separate class to allow ref counting
+   class PipelineListener : public MediaStreamListener {
+    public:
+     PipelineListener(const RefPtr<MediaSessionConduit>& conduit)
+       : conduit_(conduit), active_(false), samples_10ms_buffer_(nullptr),
+-        buffer_current_(0), samplenum_10ms_(0){}
++        buffer_current_(0), samplenum_10ms_(0) {
 +          nsIThread *thread;
 +          NS_NewNamedThread("Video Worker", &thread);
 +          MOZ_ASSERT(thread);
@@ -58,7 +79,17 @@ index 52c3a31..4783526 100644
  
      ~PipelineListener()
      {
-@@ -357,8 +362,12 @@ class MediaPipelineTransmit : public MediaPipeline {
+       // release conduit on mainthread.  Must use forget()!
+       nsresult rv = NS_DispatchToMainThread(new
+         ConduitDeleteEvent(conduit_.forget()), NS_DISPATCH_NORMAL);
+       MOZ_ASSERT(!NS_FAILED(rv),"Could not dispatch conduit shutdown to main");
+       if (NS_FAILED(rv)) {
+@@ -348,30 +353,35 @@ class MediaPipelineTransmit : public Med
+                                           uint32_t events,
+                                           const MediaSegment& queued_media) MOZ_OVERRIDE;
+     virtual void NotifyPull(MediaStreamGraph* aGraph, StreamTime aDesiredTime) MOZ_OVERRIDE {}
+ 
+    private:
      virtual void ProcessAudioChunk(AudioSessionConduit *conduit,
  				   TrackRate rate, AudioChunk& chunk);
  #ifdef MOZILLA_INTERNAL_API
@@ -73,7 +104,12 @@ index 52c3a31..4783526 100644
  #endif
      RefPtr<MediaSessionConduit> conduit_;
      volatile bool active_;
-@@ -373,6 +382,7 @@ class MediaPipelineTransmit : public MediaPipeline {
+ 
+     // These vars handle breaking audio samples into exact 10ms chunks:
+     // The buffer of 10ms audio samples that we will send once full
+     // (can be carried over from one call to another).
+     nsAutoArrayPtr<int16_t> samples_10ms_buffer_;
+     // The location of the pointer within that buffer (in units of samples).
      int64_t buffer_current_;
      // The number of samples in a 10ms audio chunk.
      int64_t samplenum_10ms_;
@@ -81,6 +117,8 @@ index 52c3a31..4783526 100644
    };
  
   private:
--- 
-1.7.12.4 (Apple Git-37)
-
+   RefPtr<PipelineListener> listener_;
+ };
+ 
+ 
+ // A specialization of pipeline for reading from the network and
