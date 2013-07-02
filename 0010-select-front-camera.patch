@@ -1,0 +1,80 @@
+# vim: se ft=diff :
+# HG changeset patch
+# User EKR <ekr@rtfm.com>
+# Date 1371444484 25200
+Clean up camera access
+
+# HG changeset patch
+# User EKR <ekr@rtfm.com>
+# Date 1371444484 25200
+# Node ID db07b459d4ed0b9c6e7af635e58f19dd686e3360
+# Parent  dd80a0a908f63cdac499e6c3e055143753fb9967
+Clean up camera access
+
+diff -r dd80a0a908f6 -r db07b459d4ed dom/media/MediaManager.cpp
+--- a/dom/media/MediaManager.cpp	Sun Jun 16 21:08:09 2013 -0700
++++ b/dom/media/MediaManager.cpp	Sun Jun 16 21:48:04 2013 -0700
+@@ -649,7 +649,6 @@
+   nsresult
+   SelectDevice()
+   {
+-    bool found = false;
+     uint32_t count;
+     if (mPicture || mVideo) {
+       nsTArray<nsRefPtr<MediaEngineVideoSource> > videoSources;
+@@ -669,24 +668,16 @@
+        * this decision.  To disallow, we'd filter by IsAvailable() as we used
+        * to.
+        */
+-      // Pick the first available device.
+-      for (uint32_t i = 0; i < count; i++) {
+-        nsRefPtr<MediaEngineVideoSource> vSource = videoSources[i];
+-        found = true;
+-        mVideoDevice = new MediaDevice(videoSources[i]);
+-        break;
+-      }
+-
+-      if (!found) {
+-        NS_DispatchToMainThread(new ErrorCallbackRunnable(
+-          mSuccess, mError, NS_LITERAL_STRING("HARDWARE_UNAVAILABLE"), mWindowID
+-        ));
+-        return NS_ERROR_FAILURE;
+-      }
++#if !defined(MOZ_WIDGET_GONK)
++      // Pick the first camera.
++      mVideoDevice = new MediaDevice(videoSources[0]);
++#else
++      // On B2G the front camera-facing camera seems to be second.
++      mVideoDevice = new MediaDevice(videoSources[count-1]);
++#endif
+       LOG(("Selected video device"));
+     }
+ 
+-    found = false;
+     if (mAudio) {
+       nsTArray<nsRefPtr<MediaEngineAudioSource> > audioSources;
+       mBackend->EnumerateAudioDevices(&audioSources);
+@@ -699,19 +690,7 @@
+         return NS_ERROR_FAILURE;
+       }
+ 
+-      for (uint32_t i = 0; i < count; i++) {
+-        nsRefPtr<MediaEngineAudioSource> aSource = audioSources[i];
+-        found = true;
+-        mAudioDevice = new MediaDevice(audioSources[i]);
+-        break;
+-      }
+-
+-      if (!found) {
+-        NS_DispatchToMainThread(new ErrorCallbackRunnable(
+-          mSuccess, mError, NS_LITERAL_STRING("HARDWARE_UNAVAILABLE"), mWindowID
+-        ));
+-        return NS_ERROR_FAILURE;
+-      }
++      mAudioDevice = new MediaDevice(audioSources[0]);
+       LOG(("Selected audio device"));
+     }
+ 
+exporting patch:
+<fdopen>
+

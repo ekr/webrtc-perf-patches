@@ -1,0 +1,26 @@
+# HG changeset patch
+# Parent f374a0cf144cd8dcc6082987f00de1174ec00eb9
+Increase ICE duration
+
+diff --git a/media/mtransport/nricectx.cpp b/media/mtransport/nricectx.cpp
+--- a/media/mtransport/nricectx.cpp
++++ b/media/mtransport/nricectx.cpp
+@@ -346,17 +346,17 @@ RefPtr<NrIceCtx> NrIceCtx::Create(const 
+       NR_reg_set_uchar((char *)"ice.pref.interface.vmnet5", 237);
+       NR_reg_set_uchar((char *)"ice.pref.interface.vmnet6", 236);
+       NR_reg_set_uchar((char *)"ice.pref.interface.vmnet7", 235);
+       NR_reg_set_uchar((char *)"ice.pref.interface.vmnet8", 234);
+       NR_reg_set_uchar((char *)"ice.pref.interface.virbr0", 233);
+       NR_reg_set_uchar((char *)"ice.pref.interface.wlan0", 232);
+     }
+ 
+-    NR_reg_set_uint4((char *)"stun.client.maximum_transmits",4);
++    NR_reg_set_uint4((char *)"stun.client.maximum_transmits",7);
+   }
+ 
+   // Create the ICE context
+   int r;
+ 
+   UINT4 flags = offerer ? NR_ICE_CTX_FLAGS_OFFERER:
+       NR_ICE_CTX_FLAGS_ANSWERER;
+   flags |= NR_ICE_CTX_FLAGS_AGGRESSIVE_NOMINATION;
